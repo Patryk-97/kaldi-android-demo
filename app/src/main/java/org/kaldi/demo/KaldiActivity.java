@@ -1,17 +1,3 @@
-// Copyright 2019 Alpha Cephei Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//       http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 package org.kaldi.demo;
 
 import android.Manifest;
@@ -26,6 +12,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.kaldi.Assets;
 import org.kaldi.KaldiRecognizer;
@@ -38,8 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 
-public class KaldiActivity extends Activity implements
-        RecognitionListener {
+public class KaldiActivity extends Activity implements RecognitionListener {
 
     static {
         System.loadLibrary("kaldi_jni");
@@ -47,7 +33,6 @@ public class KaldiActivity extends Activity implements
 
     static private final int STATE_START = 0;
     static private final int STATE_READY = 1;
-    static private final int STATE_FILE = 2;
     static private final int STATE_MIC  = 3;
 
     /* Used to handle permission request */
@@ -56,6 +41,7 @@ public class KaldiActivity extends Activity implements
     private Model model;
     private SpeechRecognizer recognizer;
     TextView resultView;
+    private Commands commands;
 
     @Override
     public void onCreate(Bundle state) {
@@ -65,13 +51,6 @@ public class KaldiActivity extends Activity implements
         // Setup layout
         resultView = findViewById(R.id.result_text);
         setUiState(STATE_START);
-
-        findViewById(R.id.recognize_file).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                recognizeFile();
-            }
-        });
 
         findViewById(R.id.recognize_mic).setOnClickListener(new View.OnClickListener() {
             @Override
@@ -121,50 +100,6 @@ public class KaldiActivity extends Activity implements
         }
     }
 
-    private static class RecognizeTask extends AsyncTask<Void, Void, String> {
-        WeakReference<KaldiActivity> activityReference;
-        WeakReference<TextView> resultView;
-
-        RecognizeTask(KaldiActivity activity, TextView resultView) {
-            this.activityReference = new WeakReference<>(activity);
-            this.resultView = new WeakReference<>(resultView);
-        }
-
-        @Override
-        protected String doInBackground(Void... params) {
-            KaldiRecognizer rec;
-            long startTime = System.currentTimeMillis();
-            StringBuilder result = new StringBuilder();
-            try {
-                rec = new KaldiRecognizer(activityReference.get().model, 16000.f);
-
-                InputStream ais = activityReference.get().getAssets().open("10001-90210-01803.wav");
-                if (ais.skip(44) != 44) {
-                    return "";
-                }
-                byte[] b = new byte[4096];
-                int nbytes;
-                while ((nbytes = ais.read(b)) >= 0) {
-                    if (rec.AcceptWaveform(b, nbytes)) {
-                        result.append(rec.Result());
-                    } else {
-                        result.append(rec.PartialResult());
-                    }
-                }
-                result.append(rec.FinalResult());
-            } catch (IOException e) {
-                return "";
-            }
-            return String.format(activityReference.get().getString(R.string.elapsed), result.toString(), (System.currentTimeMillis() - startTime));
-        }
-
-        @Override
-        protected void onPostExecute(String result) {
-            activityReference.get().setUiState(STATE_READY);
-            resultView.get().append(result + "\n");
-        }
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -194,12 +129,18 @@ public class KaldiActivity extends Activity implements
 
     @Override
     public void onResult(String hypothesis) {
-        resultView.append(hypothesis + "\n");
+        //resultView.append(hypothesis + "\n");
+        if(hypothesis.contains("play the length of solitude sound"))
+            resultView.append(hypothesis + "\n");
+        else if(hypothesis.contains("next"))
+            resultView.append("What next?\n");
     }
 
     @Override
     public void onPartialResult(String hypothesis) {
-        resultView.append(hypothesis + "\n");
+        //sentenceService(hypothesis);
+        //if(hypothesis.contains("play"))
+        //    resultView.append(hypothesis + "\n");
     }
 
     @Override
@@ -209,6 +150,7 @@ public class KaldiActivity extends Activity implements
 
     @Override
     public void onTimeout() {
+        Toast.makeText(this, "I am here", Toast.LENGTH_SHORT).show();
         recognizer.cancel();
         recognizer = null;
         setUiState(STATE_READY);
@@ -218,23 +160,15 @@ public class KaldiActivity extends Activity implements
         switch (state) {
             case STATE_START:
                 resultView.setText(R.string.preparing);
-                findViewById(R.id.recognize_file).setEnabled(false);
                 findViewById(R.id.recognize_mic).setEnabled(false);
                 break;
             case STATE_READY:
                 resultView.setText(R.string.ready);
                 ((Button) findViewById(R.id.recognize_mic)).setText(R.string.recognize_microphone);
-                findViewById(R.id.recognize_file).setEnabled(true);
                 findViewById(R.id.recognize_mic).setEnabled(true);
-                break;
-            case STATE_FILE:
-                resultView.append(getString(R.string.starting));
-                findViewById(R.id.recognize_mic).setEnabled(false);
-                findViewById(R.id.recognize_file).setEnabled(false);
                 break;
             case STATE_MIC:
                 ((Button) findViewById(R.id.recognize_mic)).setText(R.string.stop_microphone);
-                findViewById(R.id.recognize_file).setEnabled(false);
                 findViewById(R.id.recognize_mic).setEnabled(true);
                 break;
         }
@@ -243,13 +177,7 @@ public class KaldiActivity extends Activity implements
     private void setErrorState(String message) {
         resultView.setText(message);
         ((Button) findViewById(R.id.recognize_mic)).setText(R.string.recognize_microphone);
-        findViewById(R.id.recognize_file).setEnabled(false);
         findViewById(R.id.recognize_mic).setEnabled(false);
-    }
-
-    public void recognizeFile() {
-        setUiState(STATE_FILE);
-        new RecognizeTask(this, resultView).execute();
     }
 
     public void recognizeMicrophone() {
@@ -267,6 +195,45 @@ public class KaldiActivity extends Activity implements
                 setErrorState(e.getMessage());
             }
         }
+    }
+
+    private boolean sentenceService(String sentence)
+    {
+        // locals
+        boolean rV = false;
+        String[] words = sentence.split(" ");
+
+        for(int i = 0; i < words.length; i++)
+        {
+            commands.addWord(words[i]);
+            if(commands.isValidExpression())
+            {
+                if(commands.isValidSong() == true)
+                {
+                    resultView.append("Recognized command: " + commands.getActualCommand() + "\n");
+                    resultView.append("Found song: " + commands.getSong() + "\n");
+                }
+                else
+                {
+                    resultView.append("Recognized command " + commands.getActualCommand() + "\n");
+                }
+                rV = true;
+            }
+            else if(commands.unrecognizedCommand())
+            {
+                if (commands.isValidCommand() == true)
+                {
+                    resultView.append("Recognized command:\n");
+                    resultView.append("Not found song: " + commands.getSong() + "\n");
+                }
+                else
+                {
+                    resultView.append("Unrecognized command\n");
+                }
+            }
+        }
+        commands.resetActualCommand();
+        return rV;
     }
 
 }
